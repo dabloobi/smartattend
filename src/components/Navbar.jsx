@@ -2,7 +2,8 @@ import React from 'react';
 
 export default function Navbar({ activeTab, setActiveTab, currentUser, onLogout, darkMode, setDarkMode }) {
   const isAdmin = currentUser?.role && currentUser.role.toLowerCase() === 'admin';
-
+  const isStudent = currentUser?.role && currentUser.role.toLowerCase() === 'student';
+  const isTeacher = currentUser?.role && currentUser.role.toLowerCase() === 'teacher';
   return (
     <header className="navbar">
       <div className="navbar-brand" onClick={() => setActiveTab('checkin')}>
@@ -12,7 +13,7 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, onLogout,
       </div>
 
       <nav className="navbar-nav">
-        {currentUser && currentUser.role && currentUser.role.toLowerCase() === 'student' &&  (
+        {((isStudent) || (isTeacher)) && (
         <button
           className={`nav-link ${activeTab === 'checkin' ? 'active' : ''}`}
           onClick={() => setActiveTab('checkin')}
