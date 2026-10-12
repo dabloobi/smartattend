@@ -12,13 +12,14 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, onLogout,
       </div>
 
       <nav className="navbar-nav">
+        {currentUser && currentUser.role && currentUser.role.toLowerCase() === 'student' &&  (
         <button
           className={`nav-link ${activeTab === 'checkin' ? 'active' : ''}`}
           onClick={() => setActiveTab('checkin')}
         >
           Attendance
         </button>
-
+        )}
         {isAdmin && (
           <button
             className={`nav-link ${activeTab === 'admin' ? 'active' : ''}`}
