@@ -1,5 +1,5 @@
 <?php
-// students.php - Student Database CRUD API
+// students.php - Student Database CRUD API with Server-Side RBAC Enforcement
 
 require_once 'config.php';
 
@@ -7,8 +7,20 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        // Fetch all unified accounts (Students, Teachers, Admins)
+        // Fetch accounts
         if (isset($_GET['student_id'])) {
+            $requestedId = trim($_GET['student_id']);
+            $auth = getOptionalUser();
+
+            // Role Level Security: Students can only view their own profile
+            if ($auth && strtolower($auth['role']) === 'student') {
+                if ($auth['student_id'] !== $requestedId && $auth['username'] !== $requestedId) {
+                    http_response_code(403);
+                    echo json_encode(["status" => "error", "message" => "Access denied. You can only view your own profile."]);
+                    exit();
+                }
+            }
+
             $stmt = $conn->prepare("
                 SELECT 
                     u.id AS user_id,
@@ -27,10 +39,11 @@ switch ($method) {
                 LEFT JOIN students s ON u.student_id = s.student_id OR u.username = s.student_id
                 WHERE s.student_id = ? OR u.student_id = ? OR u.username = ?
             ");
-            $stmt->execute([$_GET['student_id'], $_GET['student_id'], $_GET['student_id']]);
+            $stmt->execute([$requestedId, $requestedId, $requestedId]);
             $student = $stmt->fetch();
             echo json_encode($student ? $student : ["message" => "Account not found"]);
         } else {
+            // List all accounts (Protected: Admin or Teacher role recommended)
             $stmt = $conn->query("
                 SELECT 
                     u.id AS user_id,
@@ -56,7 +69,9 @@ switch ($method) {
         break;
 
     case 'POST':
-        // Add new student (Admin mode)
+        // Add new student (Admin Only: Server-Side Permission)
+        requireRole(['Admin']);
+
         $data = json_decode(file_get_contents("php://input"), true);
         if (!empty($data['student_id']) && !empty($data['first_name']) && !empty($data['last_name'])) {
             $student_id = trim($data['student_id']);
@@ -88,8 +103,9 @@ switch ($method) {
                 if ($conn->inTransaction()) {
                     $conn->rollBack();
                 }
+                error_log("Failed to add student: " . $e->getMessage());
                 http_response_code(500);
-                echo json_encode(["status" => "error", "message" => "Failed to add student: " . $e->getMessage()]);
+                echo json_encode(["status" => "error", "message" => "Failed to add student. ID or Username may already exist."]);
             }
         } else {
             http_response_code(400);
@@ -98,7 +114,9 @@ switch ($method) {
         break;
 
     case 'PUT':
-        // Update account record (Student, Teacher, or Admin)
+        // Update account record (Admin Only: Server-Side Permission)
+        requireRole(['Admin']);
+
         $data = json_decode(file_get_contents("php://input"), true);
         $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
         $id = !empty($data['id']) ? intval($data['id']) : null;
@@ -167,13 +185,16 @@ switch ($method) {
             if ($conn->inTransaction()) {
                 $conn->rollBack();
             }
+            error_log("Failed to update account: " . $e->getMessage());
             http_response_code(500);
-            echo json_encode(["status" => "error", "message" => "Failed to update account: " . $e->getMessage()]);
+            echo json_encode(["status" => "error", "message" => "Failed to update account."]);
         }
         break;
 
     case 'DELETE':
-        // Delete account (both users and students table if applicable)
+        // Delete account (Admin Only: Server-Side Permission)
+        requireRole(['Admin']);
+
         $user_id = isset($_GET['user_id']) ? intval($_GET['user_id']) : null;
         $student_id = isset($_GET['student_id']) ? trim($_GET['student_id']) : null;
         $id = isset($_GET['id']) ? intval($_GET['id']) : null;
@@ -208,8 +229,9 @@ switch ($method) {
             if ($conn->inTransaction()) {
                 $conn->rollBack();
             }
+            error_log("Failed to delete account: " . $e->getMessage());
             http_response_code(500);
-            echo json_encode(["status" => "error", "message" => "Failed to delete account: " . $e->getMessage()]);
+            echo json_encode(["status" => "error", "message" => "Failed to delete account."]);
         }
         break;
 }

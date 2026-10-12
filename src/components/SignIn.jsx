@@ -133,7 +133,7 @@ export default function SignIn({ onLoginSuccess }) {
         </form>
 
         {/* Demo Shortcuts Divider */}
-         <div className="auth-divider">
+         {/* <div className="auth-divider">
           <span>Quick Demo Shortcuts</span>
         </div>
 
@@ -147,7 +147,7 @@ export default function SignIn({ onLoginSuccess }) {
           <button type="button" className="btn btn-secondary demo-btn" onClick={() => handleQuickDemo('00001')}>
             Student
           </button>
-        </div> 
+        </div>  */}
       </div>
     </div>
   );

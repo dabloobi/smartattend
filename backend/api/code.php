@@ -21,6 +21,9 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'POST':
+        // Generate QR code (Teacher or Admin Only)
+        requireRole(['Teacher', 'Admin']);
+
         $data = json_decode(file_get_contents("php://input"), true);
         $action = isset($data['action']) ? $data['action'] : 'generate';
 

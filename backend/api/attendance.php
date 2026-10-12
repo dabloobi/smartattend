@@ -113,6 +113,9 @@ switch ($method) {
         break;
 
     case 'DELETE':
+        // Purge Attendance Logs (Admin Only: Server-Side Permission)
+        requireRole(['Admin']);
+
         $purge_date = isset($_GET['date']) ? trim($_GET['date']) : null;
         $purge_all = isset($_GET['purge_all']) ? true : false;
 
@@ -129,12 +132,25 @@ switch ($method) {
                 echo json_encode(["status" => "error", "message" => "Purge date or purge_all parameter required."]);
             }
         } catch (Exception $e) {
+            error_log("Failed to purge attendance logs: " . $e->getMessage());
             http_response_code(500);
-            echo json_encode(["status" => "error", "message" => "Failed to purge attendance logs: " . $e->getMessage()]);
+            echo json_encode(["status" => "error", "message" => "Failed to purge attendance logs."]);
         }
         break;
 
     case 'GET':
+        $auth = getOptionalUser();
+
+        // Role Level Security: Students can only view their own attendance records
+        if ($auth && strtolower($auth['role']) === 'student') {
+            $studentId = $auth['student_id'] ?: $auth['username'];
+            $stmt = $conn->prepare("SELECT * FROM attendance_logs WHERE student_id = ? ORDER BY check_in_time DESC");
+            $stmt->execute([$studentId]);
+            $logs = $stmt->fetchAll();
+            echo json_encode($logs);
+            break;
+        }
+
         if (isset($_GET['student_id'])) {
             $stmt = $conn->prepare("SELECT * FROM attendance_logs WHERE student_id = ? ORDER BY check_in_time DESC");
             $stmt->execute([$_GET['student_id']]);

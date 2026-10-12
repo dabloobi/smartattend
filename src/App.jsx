@@ -66,6 +66,7 @@ function App() {
     setCurrentUser(null)
     localStorage.removeItem('smartattend_user')
     localStorage.removeItem('smartattend_tab')
+    localStorage.removeItem('smartattend_token')
     setActiveTab('checkin')
   }
 

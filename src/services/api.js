@@ -2,6 +2,33 @@ const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname 
   ? `${window.location.origin}/api`
   : 'http://localhost/smartattend/backend/api';
 
+export function getAuthToken() {
+  return typeof localStorage !== 'undefined' ? (localStorage.getItem('smartattend_token') || '') : '';
+}
+
+export function setAuthToken(token) {
+  if (typeof localStorage !== 'undefined') {
+    if (token) {
+      localStorage.setItem('smartattend_token', token);
+    } else {
+      localStorage.removeItem('smartattend_token');
+    }
+  }
+}
+
+export function getAuthHeaders(extraHeaders = {}) {
+  const token = getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...extraHeaders
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Auth-Token'] = token;
+  }
+  return headers;
+}
+
 export async function signInUser(username, password) {
   try {
     const res = await fetch(`${API_BASE_URL}/auth.php`, {
@@ -9,7 +36,11 @@ export async function signInUser(username, password) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'signin', username, password }),
     });
-    return await res.json();
+    const data = await res.json();
+    if (data && data.status === 'success' && data.token) {
+      setAuthToken(data.token);
+    }
+    return data;
   } catch (error) {
     console.warn('Backend API offline. Using local authentication fallback.');
     if (username === 'admin' || username === 'teacher' || username === 'juan2026' || username.length > 3) {
@@ -51,7 +82,7 @@ export async function addTeacher(teacherData) {
   try {
     const res = await fetch(`${API_BASE_URL}/auth.php`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ action: 'add_teacher', ...teacherData }),
     });
     return await res.json();
@@ -63,17 +94,14 @@ export async function addTeacher(teacherData) {
 
 export async function fetchStudents() {
   try {
-    const res = await fetch(`${API_BASE_URL}/students.php`);
+    const res = await fetch(`${API_BASE_URL}/students.php`, {
+      headers: getAuthHeaders()
+    });
     if (!res.ok) throw new Error('Failed to fetch student database');
     return await res.json();
   } catch (error) {
     console.warn('Backend API offline. Fetching default student list.');
-    // return [
-    //   { id: 1, student_id: '01-2627-00001', first_name: 'Juan', last_name: 'Dela Cruz', course: 'BSIT', section: '3-1', birth_date: '2004-05-15', email: 'juan@smartattend.edu' },
-    //   { id: 2, student_id: '01-2627-00002', first_name: 'Maria', last_name: 'Santos', course: 'BSIT', section: '3-1', birth_date: '2004-08-20', email: 'maria@smartattend.edu' },
-    //   { id: 3, student_id: '01-2627-00003', first_name: 'Alex', last_name: 'Reyes', course: 'BSCS', section: '3-2', birth_date: '2003-12-10', email: 'alex@smartattend.edu' },
-    //   { id: 4, student_id: '01-2627-00004', first_name: 'Sofia', last_name: 'Garcia', course: 'BSIS', section: '2-1', birth_date: '2005-02-28', email: 'sofia@smartattend.edu' }
-    // ];
+    return [];
   }
 }
 
@@ -81,7 +109,7 @@ export async function addStudent(studentData) {
   try {
     const res = await fetch(`${API_BASE_URL}/students.php`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(studentData),
     });
     return await res.json();
@@ -94,7 +122,7 @@ export async function updateStudent(studentData) {
   try {
     const res = await fetch(`${API_BASE_URL}/students.php`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(studentData),
     });
     return await res.json();
@@ -108,6 +136,7 @@ export async function deleteStudent(id, userId = null) {
     const query = userId ? `user_id=${userId}&id=${id}` : `id=${id}`;
     const res = await fetch(`${API_BASE_URL}/students.php?${query}`, {
       method: 'DELETE',
+      headers: getAuthHeaders()
     });
     return await res.json();
   } catch (error) {
@@ -119,7 +148,7 @@ export async function logCheckIn(studentId, attendanceCode, method = 'QR Code Sc
   try {
     const res = await fetch(`${API_BASE_URL}/attendance.php`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ student_id: studentId, attendance_code: attendanceCode, method }),
     });
     return await res.json();
@@ -167,7 +196,9 @@ export async function fetchAttendanceLogs(studentId = null) {
     const url = studentId
       ? `${API_BASE_URL}/attendance.php?student_id=${studentId}`
       : `${API_BASE_URL}/attendance.php`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: getAuthHeaders()
+    });
     if (!res.ok) throw new Error('Failed to fetch attendance logs');
     const data = await res.json();
     return Array.isArray(data) ? data.map(l => ({
@@ -178,9 +209,9 @@ export async function fetchAttendanceLogs(studentId = null) {
     console.warn('Backend API offline. Fetching logs from local storage.');
     const localLogs = JSON.parse(localStorage.getItem('smartattend_logs') || '[]');
     if (studentId) {
-      return sanitizedLogs.filter(l => l.student_id === studentId);
+      return localLogs.filter(l => l.student_id === studentId);
     }
-    return sanitizedLogs;
+    return localLogs;
   }
 }
 
@@ -189,6 +220,7 @@ export async function purgeAttendanceLogs(date = null, purgeAll = false) {
     const query = purgeAll ? 'purge_all=1' : `date=${date}`;
     const res = await fetch(`${API_BASE_URL}/attendance.php?${query}`, {
       method: 'DELETE',
+      headers: getAuthHeaders()
     });
     return await res.json();
   } catch (error) {
@@ -217,7 +249,7 @@ export async function generateMasterQRCode(durationValue = 0, durationUnit = 'ne
   try {
     const res = await fetch(`${API_BASE_URL}/code.php`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ action: 'generate_qr', duration_value: durationValue, duration_unit: durationUnit }),
     });
     const data = await res.json();
@@ -241,7 +273,9 @@ export async function generateMasterQRCode(durationValue = 0, durationUnit = 'ne
 
 export async function fetchMasterQRCode() {
   try {
-    const res = await fetch(`${API_BASE_URL}/code.php`);
+    const res = await fetch(`${API_BASE_URL}/code.php`, {
+      headers: getAuthHeaders()
+    });
     if (!res.ok) throw new Error('Failed to fetch active master QR code');
     return await res.json();
   } catch (error) {
