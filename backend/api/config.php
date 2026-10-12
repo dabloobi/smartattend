@@ -56,7 +56,6 @@ if ($env_host !== null && $env_name !== null && $env_user !== null) {
     $username = $env_user;
     $password = $env_pass ?? '';
 } else {
-    // Fallback: Detect environment (Local XAMPP vs Live cPanel)
     $host = 'localhost';
     $http_host = $_SERVER['HTTP_HOST'] ?? '';
 
