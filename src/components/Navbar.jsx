@@ -19,7 +19,7 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, onLogout,
         >
           Attendance
         </button>
-        )}
+        )} 
         {isAdmin && (
           <button
             className={`nav-link ${activeTab === 'admin' ? 'active' : ''}`}
