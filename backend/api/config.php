@@ -65,11 +65,6 @@ if ($env_host !== null && $env_name !== null && $env_user !== null) {
         $db_name  = 'smartattend_db';
         $username = 'root';
         $password = '';
-    } else {
-        // Live Server (cPanel)
-        $db_name  = 'cahslmsx52_smartattend_db';
-        $username = 'cahslmsx52_test';
-        $password = 'O{39o*332]6h)C*-';
     }
 }
 
