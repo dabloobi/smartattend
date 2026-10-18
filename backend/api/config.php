@@ -117,8 +117,28 @@ try {
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
     $conn->exec("SET time_zone = '" . $env_timezone . "'");
+
+    // Auto-migrate profile & email verification columns in users table
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN is_verified TINYINT(1) DEFAULT 0");
+    } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) NULL");
+    } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN verification_expires_at DATETIME NULL");
+    } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN email VARCHAR(150) NULL");
+    } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL");
+    } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN pending_email VARCHAR(150) NULL");
+    } catch (PDOException $e) {}
 } catch (PDOException $e) {
-    error_log("SmartAttend Database Error: " . $e->getMessage());
+    error_log("Database Error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         "status" => "error",

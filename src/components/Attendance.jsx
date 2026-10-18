@@ -243,7 +243,12 @@ export default function Attendance({ currentUser, setActiveTab }) {
                 padding: '1.5rem',
                 textAlign: 'center'
               }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>✅</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.75rem', color: 'var(--success)' }}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                </div>
                 <div className="result-details">
                   <h4 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 0.5rem 0' }}>{lastCheckIn.name}</h4>
                   <p className="badge badge-id mb-2">{lastCheckIn.student_id}</p>

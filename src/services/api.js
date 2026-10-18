@@ -78,6 +78,36 @@ export async function signUpUser(studentData) {
   }
 }
 
+export async function verifyEmail(username, code) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'verify_email', username, code }),
+    });
+    const data = await res.json();
+    if (data && data.status === 'success' && data.token) {
+      setAuthToken(data.token);
+    }
+    return data;
+  } catch (error) {
+    return { status: 'error', message: 'Failed to verify email. Please check connection.' };
+  }
+}
+
+export async function resendVerificationCode(username, email = '') {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'resend_verification', username, email }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to resend verification code. Please check connection.' };
+  }
+}
+
 export async function addTeacher(teacherData) {
   try {
     const res = await fetch(`${API_BASE_URL}/auth.php`, {
@@ -288,3 +318,126 @@ export async function fetchMasterQRCode() {
     };
   }
 }
+
+// ----------------------------------------------------------------------------
+// ACCOUNT MANAGEMENT & SECURITY API (Name, Profile Avatar, Email OTP, Password OTP)
+// ----------------------------------------------------------------------------
+
+export async function getProfile(userId, username) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action: 'get_profile', user_id: userId, username }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to fetch user profile.' };
+  }
+}
+
+export async function updateProfile(userId, { name, avatar }) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action: 'update_profile', user_id: userId, name, avatar }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to update profile.' };
+  }
+}
+
+export async function requestEmailChangeOtp(userId, newEmail) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action: 'request_email_change_otp', user_id: userId, new_email: newEmail }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to send email verification OTP.' };
+  }
+}
+
+export async function confirmEmailChange(userId, code) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action: 'confirm_email_change', user_id: userId, code }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to confirm email change.' };
+  }
+}
+
+export async function requestPasswordChangeOtp(userId) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action: 'request_password_change_otp', user_id: userId }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to send password reset OTP.' };
+  }
+}
+
+export async function confirmPasswordChange(userId, { currentPassword, newPassword, code }) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        action: 'confirm_password_change',
+        user_id: userId,
+        current_password: currentPassword,
+        new_password: newPassword,
+        code
+      }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to confirm password change.' };
+  }
+}
+
+export async function requestForgotPasswordOtp(identifier) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        action: 'request_password_change_otp',
+        identifier: identifier.trim()
+      }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to send verification code.' };
+  }
+}
+
+export async function resetPasswordWithOtp(identifier, code, newPassword) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth.php`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        action: 'confirm_password_change',
+        identifier: identifier.trim(),
+        code: code.trim(),
+        new_password: newPassword
+      }),
+    });
+    return await res.json();
+  } catch (error) {
+    return { status: 'error', message: 'Failed to reset password.' };
+  }
+}
+

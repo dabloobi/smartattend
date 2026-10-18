@@ -140,6 +140,7 @@ export default function AdminDashboard() {
       section: account.section || '3-1',
       birth_date: account.birth_date || '',
       email: account.email || '',
+      is_verified: Number(account.is_verified) === 1 ? 1 : 0,
       password: '',
     });
     setShowEditModal(true);
@@ -404,7 +405,22 @@ export default function AdminDashboard() {
                           </td>
                           <td><strong>{displayName}</strong></td>
                           <td>{deptOrCourse}</td>
-                          <td>{s.email || 'N/A'}</td>
+                          <td>
+                            <div>{s.email || 'N/A'}</div>
+                            {s.email && s.email !== 'N/A' && (
+                              <div style={{ marginTop: '4px' }}>
+                                {Number(s.is_verified) === 1 ? (
+                                  <span className="badge badge-success" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                                    ✓ Verified
+                                  </span>
+                                ) : (
+                                  <span className="badge badge-warning" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                                    Pending Verification
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td className="action-buttons-cell">
                             <button className="btn btn-action btn-action-edit" onClick={() => handleOpenEditModal(s)}>Edit</button>
                             <button className="btn btn-action btn-action-danger" onClick={() => handleDelete(s)}>Delete</button>
@@ -969,6 +985,20 @@ export default function AdminDashboard() {
                   </div>
                 </>
               )}
+
+              <div className="form-group full-width" style={{ marginTop: '0.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={Number(formData.is_verified) === 1}
+                    onChange={(e) => setFormData({ ...formData, is_verified: e.target.checked ? 1 : 0 })}
+                  />
+                  <span style={{ fontWeight: 600 }}>Email Verified</span>
+                </label>
+                <small className="text-muted d-block" style={{ marginTop: '2px' }}>
+                  Check this to mark this user's email as verified. If unchecked, the user will see a verification notice in their account until verified.
+                </small>
+              </div>
 
               <div className="modal-footer full-width">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>
