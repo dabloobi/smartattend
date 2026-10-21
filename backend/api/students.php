@@ -8,13 +8,16 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        // Fetch accounts
+        // Require valid authentication token for viewing account/student details
+        $auth = requireRole(['Student', 'Teacher', 'Admin']);
+        $role = strtolower($auth['role'] ?? '');
+
+        // Fetch single student/account
         if (isset($_GET['student_id'])) {
             $requestedId = trim($_GET['student_id']);
-            $auth = getOptionalUser();
 
-            // Role Level Security: Students can only view their own profile
-            if ($auth && strtolower($auth['role']) === 'student') {
+            // Role Level Security: Students can ONLY view their own profile
+            if ($role === 'student') {
                 if ($auth['student_id'] !== $requestedId && $auth['username'] !== $requestedId) {
                     http_response_code(403);
                     echo json_encode(["status" => "error", "message" => "Access denied. You can only view your own profile."]);
@@ -45,7 +48,13 @@ switch ($method) {
             $student = $stmt->fetch();
             echo json_encode($student ? $student : ["message" => "Account not found"]);
         } else {
-            // List all accounts (Protected: Admin or Teacher role recommended)
+            // Viewing student list: Strictly Admin or Teacher only (Students cannot browse all student records)
+            if ($role === 'student') {
+                http_response_code(403);
+                echo json_encode(["status" => "error", "message" => "Forbidden. Students cannot view the full student directory."]);
+                exit();
+            }
+
             $stmt = $conn->query("
                 SELECT 
                     u.id AS user_id,

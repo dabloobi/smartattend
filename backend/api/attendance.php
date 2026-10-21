@@ -29,13 +29,11 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'POST':
-        $data = json_decode(file_get_contents("php://input"), true);
-        if (empty($data['student_id'])) {
-            http_response_code(400);
-            echo json_encode(["status" => "error", "message" => "Student Account / ID is required."]);
-            exit();
-        }
+        // Require authenticated Student (or Admin) identity from token
+        $auth = requireRole(['Student', 'Admin']);
+        $student_id = !empty($auth['student_id']) ? $auth['student_id'] : $auth['username'];
 
+        $data = json_decode(file_get_contents("php://input"), true);
         $submitted_code = !empty($data['attendance_code']) ? trim($data['attendance_code']) : (!empty($data['qr_code']) ? trim($data['qr_code']) : '');
         if (empty($submitted_code)) {
             http_response_code(400);
@@ -43,9 +41,7 @@ switch ($method) {
             exit();
         }
 
-        $student_id = trim($data['student_id']);
-
-        // 1. Verify Student Account / ID in database
+        // 1. Verify Student Account in database
         $stmt = $conn->prepare("SELECT * FROM students WHERE student_id = ?");
         $stmt->execute([$student_id]);
         $student = $stmt->fetch();
@@ -139,10 +135,12 @@ switch ($method) {
         break;
 
     case 'GET':
-        $auth = getOptionalUser();
+        // Require valid authentication token for viewing attendance
+        $auth = requireRole(['Student', 'Teacher', 'Admin']);
+        $role = strtolower($auth['role'] ?? '');
 
-        // Role Level Security: Students can only view their own attendance records
-        if ($auth && strtolower($auth['role']) === 'student') {
+        // 1. Student: Can ONLY view their own attendance records
+        if ($role === 'student') {
             $studentId = $auth['student_id'] ?: $auth['username'];
             $stmt = $conn->prepare("SELECT * FROM attendance_logs WHERE student_id = ? ORDER BY check_in_time DESC");
             $stmt->execute([$studentId]);
@@ -151,9 +149,10 @@ switch ($method) {
             break;
         }
 
-        if (isset($_GET['student_id'])) {
+        // 2. Teacher or Admin: Can view class attendance or filter by student_id
+        if (isset($_GET['student_id']) && trim($_GET['student_id']) !== '') {
             $stmt = $conn->prepare("SELECT * FROM attendance_logs WHERE student_id = ? ORDER BY check_in_time DESC");
-            $stmt->execute([$_GET['student_id']]);
+            $stmt->execute([trim($_GET['student_id'])]);
             $logs = $stmt->fetchAll();
             echo json_encode($logs);
         } else {

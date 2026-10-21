@@ -137,6 +137,12 @@ try {
     try {
         $conn->exec("ALTER TABLE users ADD COLUMN pending_email VARCHAR(150) NULL");
     } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN failed_attempts INT DEFAULT 0");
+    } catch (PDOException $e) {}
+    try {
+        $conn->exec("ALTER TABLE users ADD COLUMN locked_until DATETIME NULL");
+    } catch (PDOException $e) {}
 } catch (PDOException $e) {
     error_log("Database Error: " . $e->getMessage());
     http_response_code(500);

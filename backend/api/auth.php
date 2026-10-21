@@ -37,6 +37,18 @@ if ($action === 'signin') {
     $stmt->execute([$username, $username]);
     $user = $stmt->fetch();
 
+    // Check account lockout status
+    if ($user && !empty($user['locked_until']) && strtotime($user['locked_until']) > time()) {
+        $remainingSeconds = strtotime($user['locked_until']) - time();
+        $remainingMinutes = ceil($remainingSeconds / 60);
+        http_response_code(429);
+        echo json_encode([
+            "status" => "error",
+            "message" => "Account temporarily locked due to repeated failed login attempts. Please try again in {$remainingMinutes} minute(s)."
+        ]);
+        exit();
+    }
+
     $isValid = false;
     if ($user) {
         if (password_verify($password, $user['password'])) {
@@ -54,6 +66,26 @@ if ($action === 'signin') {
     }
 
     if ($user && $isValid) {
+        // Reset failed attempts & unlock account on successful login
+        try {
+            $conn->prepare("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?")->execute([$user['id']]);
+        } catch (Exception $e) {}
+
+        // Enforce is_verified check for Students if verification is required
+        $role = strtolower($user['role'] ?? '');
+        $isVerified = (int)($user['is_verified'] ?? 0);
+        if ($role === 'student' && $isVerified === 0) {
+            http_response_code(403);
+            echo json_encode([
+                "status" => "unverified",
+                "message" => "Your account email is unverified. Please enter the verification code sent to your email to activate your account.",
+                "requires_verification" => true,
+                "username" => $user['username'],
+                "email" => $user['email'] ?? ''
+            ]);
+            exit();
+        }
+
         unset($user['password']);
 
         // Fetch student / faculty details
@@ -82,8 +114,27 @@ if ($action === 'signin') {
             "student" => $studentDetails
         ]);
     } else {
+        // Increment failed attempts and apply lockout if threshold exceeded
+        if ($user) {
+            try {
+                $attempts = intval($user['failed_attempts'] ?? 0) + 1;
+                if ($attempts >= 5) {
+                    // Lock for 15 minutes after 5 consecutive failures
+                    $lockUntil = date('Y-m-d H:i:s', strtotime('+15 minutes'));
+                    $conn->prepare("UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?")->execute([$attempts, $lockUntil, $user['id']]);
+                } else {
+                    // Introduce progressive delay (linear sleep) to defeat brute-force
+                    usleep($attempts * 250000); // 250ms per failed attempt
+                    $conn->prepare("UPDATE users SET failed_attempts = ? WHERE id = ?")->execute([$attempts, $user['id']]);
+                }
+            } catch (Exception $e) {}
+        } else {
+            // Mitigate timing attacks for non-existent users
+            usleep(250000);
+        }
+
         http_response_code(401);
-        echo json_encode(["status" => "error", "message" => "Invalid username or password."]);
+        echo json_encode(["status" => "error", "message" => "Invalid credentials. Please check your username and password."]);
     }
 
 } else if ($action === 'signup') {
@@ -392,23 +443,32 @@ if ($action === 'signin') {
 
 } else if ($action === 'get_profile') {
     // ------------------------------------------------------------------------
-    // GET PROFILE
+    // GET PROFILE (Token Authenticated)
     // ------------------------------------------------------------------------
-    $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
-    $username = !empty($data['username']) ? trim($data['username']) : null;
+    $auth = requireRole(['Student', 'Teacher', 'Admin']);
+    $tokenUserId = intval($auth['id']);
+    $role = strtolower($auth['role'] ?? '');
 
-    if (!$user_id && !$username) {
-        http_response_code(400);
-        echo json_encode(["status" => "error", "message" => "User ID or username is required."]);
-        exit();
+    // Target user to fetch
+    $target_user_id = !empty($data['user_id']) ? intval($data['user_id']) : $tokenUserId;
+    $target_username = !empty($data['username']) ? trim($data['username']) : null;
+
+    // Enforce account ownership: only Admins can query profiles of other users
+    if ($role !== 'admin') {
+        if ($target_user_id !== $tokenUserId && ($target_username === null || $target_username !== $auth['username'])) {
+            http_response_code(403);
+            echo json_encode(["status" => "error", "message" => "Forbidden. You can only view your own profile."]);
+            exit();
+        }
+        $target_user_id = $tokenUserId;
     }
 
-    if ($user_id) {
+    if ($target_user_id) {
         $stmt = $conn->prepare("SELECT id, name, username, role, student_id, email, is_verified, avatar FROM users WHERE id = ?");
-        $stmt->execute([$user_id]);
+        $stmt->execute([$target_user_id]);
     } else {
         $stmt = $conn->prepare("SELECT id, name, username, role, student_id, email, is_verified, avatar FROM users WHERE username = ?");
-        $stmt->execute([$username]);
+        $stmt->execute([$target_username]);
     }
     $user = $stmt->fetch();
 
@@ -432,17 +492,24 @@ if ($action === 'signin') {
 
 } else if ($action === 'update_profile') {
     // ------------------------------------------------------------------------
-    // UPDATE PROFILE (Name, Avatar)
+    // UPDATE PROFILE (Name, Avatar) - Token Authenticated
     // ------------------------------------------------------------------------
-    $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
-    $name = isset($data['name']) ? trim($data['name']) : '';
-    $avatar = isset($data['avatar']) ? $data['avatar'] : null;
+    $auth = requireRole(['Student', 'Teacher', 'Admin']);
+    $tokenUserId = intval($auth['id']);
+    $role = strtolower($auth['role'] ?? '');
 
-    if (!$user_id) {
-        http_response_code(400);
-        echo json_encode(["status" => "error", "message" => "User ID is required."]);
+    $requested_user_id = !empty($data['user_id']) ? intval($data['user_id']) : $tokenUserId;
+
+    // Only Admin can update another user's profile
+    if ($role !== 'admin' && $requested_user_id !== $tokenUserId) {
+        http_response_code(403);
+        echo json_encode(["status" => "error", "message" => "Forbidden. You cannot modify another user's profile."]);
         exit();
     }
+
+    $user_id = ($role === 'admin') ? $requested_user_id : $tokenUserId;
+    $name = isset($data['name']) ? trim($data['name']) : '';
+    $avatar = isset($data['avatar']) ? $data['avatar'] : null;
 
     $stmtUser = $conn->prepare("SELECT * FROM users WHERE id = ?");
     $stmtUser->execute([$user_id]);
@@ -486,14 +553,25 @@ if ($action === 'signin') {
 
 } else if ($action === 'request_email_change_otp') {
     // ------------------------------------------------------------------------
-    // REQUEST EMAIL CHANGE OTP (Sends 6-digit OTP to NEW email)
+    // REQUEST EMAIL CHANGE OTP (Token Authenticated - Token Subject Only)
     // ------------------------------------------------------------------------
-    $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
+    $auth = requireRole(['Student', 'Teacher', 'Admin']);
+    $tokenUserId = intval($auth['id']);
+    $role = strtolower($auth['role'] ?? '');
+
+    $requested_user_id = !empty($data['user_id']) ? intval($data['user_id']) : $tokenUserId;
+    if ($role !== 'admin' && $requested_user_id !== $tokenUserId) {
+        http_response_code(403);
+        echo json_encode(["status" => "error", "message" => "Forbidden. You cannot request email change for another account."]);
+        exit();
+    }
+
+    $user_id = ($role === 'admin') ? $requested_user_id : $tokenUserId;
     $new_email = !empty($data['new_email']) ? trim($data['new_email']) : '';
 
-    if (!$user_id || empty($new_email)) {
+    if (empty($new_email)) {
         http_response_code(400);
-        echo json_encode(["status" => "error", "message" => "User ID and new email address are required."]);
+        echo json_encode(["status" => "error", "message" => "New email address is required."]);
         exit();
     }
 
@@ -548,14 +626,25 @@ if ($action === 'signin') {
 
 } else if ($action === 'confirm_email_change') {
     // ------------------------------------------------------------------------
-    // CONFIRM EMAIL CHANGE WITH OTP
+    // CONFIRM EMAIL CHANGE WITH OTP (Token Authenticated - Token Subject Only)
     // ------------------------------------------------------------------------
-    $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
+    $auth = requireRole(['Student', 'Teacher', 'Admin']);
+    $tokenUserId = intval($auth['id']);
+    $role = strtolower($auth['role'] ?? '');
+
+    $requested_user_id = !empty($data['user_id']) ? intval($data['user_id']) : $tokenUserId;
+    if ($role !== 'admin' && $requested_user_id !== $tokenUserId) {
+        http_response_code(403);
+        echo json_encode(["status" => "error", "message" => "Forbidden. You cannot confirm email change for another account."]);
+        exit();
+    }
+
+    $user_id = ($role === 'admin') ? $requested_user_id : $tokenUserId;
     $code = !empty($data['code']) ? trim($data['code']) : '';
 
-    if (!$user_id || empty($code)) {
+    if (empty($code)) {
         http_response_code(400);
-        echo json_encode(["status" => "error", "message" => "User ID and 6-digit verification code are required."]);
+        echo json_encode(["status" => "error", "message" => "6-digit verification code is required."]);
         exit();
     }
 
@@ -608,22 +697,36 @@ if ($action === 'signin') {
 
 } else if ($action === 'request_password_change_otp') {
     // ------------------------------------------------------------------------
-    // REQUEST PASSWORD CHANGE OTP (Sends 6-digit OTP to registered email)
+    // REQUEST PASSWORD CHANGE OTP (Dual-mode: Authenticated OR Unauthenticated Forgot Password)
     // ------------------------------------------------------------------------
-    $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
-    $identifier = !empty($data['identifier']) ? trim($data['identifier']) : (!empty($data['username']) ? trim($data['username']) : null);
+    $tokenUser = getOptionalUser();
+    $role = strtolower($tokenUser['role'] ?? '');
+    $user = null;
 
-    if (!$user_id && !$identifier) {
-        http_response_code(400);
-        echo json_encode(["status" => "error", "message" => "Username, Student ID, or Email is required."]);
-        exit();
-    }
+    if ($tokenUser) {
+        // Authenticated flow: user requesting password change for their own account
+        $tokenUserId = intval($tokenUser['id']);
+        $requested_user_id = !empty($data['user_id']) ? intval($data['user_id']) : $tokenUserId;
 
-    if ($user_id) {
+        if ($role !== 'admin' && $requested_user_id !== $tokenUserId) {
+            http_response_code(403);
+            echo json_encode(["status" => "error", "message" => "Forbidden. You cannot request password changes for another account."]);
+            exit();
+        }
+
+        $targetId = ($role === 'admin') ? $requested_user_id : $tokenUserId;
         $stmtUser = $conn->prepare("SELECT * FROM users WHERE id = ?");
-        $stmtUser->execute([$user_id]);
+        $stmtUser->execute([$targetId]);
         $user = $stmtUser->fetch();
     } else {
+        // Unauthenticated recovery (Forgot Password flow)
+        $identifier = !empty($data['identifier']) ? trim($data['identifier']) : (!empty($data['username']) ? trim($data['username']) : null);
+        if (!$identifier) {
+            http_response_code(400);
+            echo json_encode(["status" => "error", "message" => "Username, Student ID, or Email is required."]);
+            exit();
+        }
+
         $stmtUser = $conn->prepare("SELECT * FROM users WHERE username = ? OR student_id = ? OR email = ?");
         $stmtUser->execute([$identifier, $identifier, $identifier]);
         $user = $stmtUser->fetch();
@@ -639,9 +742,12 @@ if ($action === 'signin') {
         }
     }
 
+    // Generic response if account is not found or has no email to prevent account enumeration
     if (!$user) {
-        http_response_code(404);
-        echo json_encode(["status" => "error", "message" => "Account not found."]);
+        echo json_encode([
+            "status" => "success",
+            "message" => "If an account matches those details, a verification code has been sent."
+        ]);
         exit();
     }
 
@@ -654,8 +760,10 @@ if ($action === 'signin') {
     }
 
     if (empty($email)) {
-        http_response_code(400);
-        echo json_encode(["status" => "error", "message" => "No registered email found for this account. Please contact an administrator."]);
+        echo json_encode([
+            "status" => "success",
+            "message" => "If an account matches those details, a verification code has been sent."
+        ]);
         exit();
     }
 
@@ -694,13 +802,15 @@ if ($action === 'signin') {
     // ------------------------------------------------------------------------
     // CONFIRM PASSWORD CHANGE WITH OTP
     // ------------------------------------------------------------------------
-    $user_id = !empty($data['user_id']) ? intval($data['user_id']) : null;
-    $identifier = !empty($data['identifier']) ? trim($data['identifier']) : (!empty($data['username']) ? trim($data['username']) : null);
+    $tokenUser = getOptionalUser();
+    $role = strtolower($tokenUser['role'] ?? '');
+    $user = null;
+
     $new_password = !empty($data['new_password']) ? trim($data['new_password']) : '';
     $code = !empty($data['code']) ? trim($data['code']) : '';
     $current_password = isset($data['current_password']) ? trim($data['current_password']) : '';
 
-    if ((!$user_id && !$identifier) || empty($new_password) || empty($code)) {
+    if (empty($new_password) || empty($code)) {
         http_response_code(400);
         echo json_encode(["status" => "error", "message" => "Please fill out all required fields."]);
         exit();
@@ -712,11 +822,27 @@ if ($action === 'signin') {
         exit();
     }
 
-    if ($user_id) {
+    if ($tokenUser) {
+        $tokenUserId = intval($tokenUser['id']);
+        $requested_user_id = !empty($data['user_id']) ? intval($data['user_id']) : $tokenUserId;
+        if ($role !== 'admin' && $requested_user_id !== $tokenUserId) {
+            http_response_code(403);
+            echo json_encode(["status" => "error", "message" => "Forbidden. You cannot modify another user's password."]);
+            exit();
+        }
+        $targetId = ($role === 'admin') ? $requested_user_id : $tokenUserId;
         $stmtUser = $conn->prepare("SELECT * FROM users WHERE id = ?");
-        $stmtUser->execute([$user_id]);
+        $stmtUser->execute([$targetId]);
         $user = $stmtUser->fetch();
     } else {
+        // Forgot Password unauthenticated flow
+        $identifier = !empty($data['identifier']) ? trim($data['identifier']) : (!empty($data['username']) ? trim($data['username']) : null);
+        if (!$identifier) {
+            http_response_code(400);
+            echo json_encode(["status" => "error", "message" => "Username, Student ID, or Email is required."]);
+            exit();
+        }
+
         $stmtUser = $conn->prepare("SELECT * FROM users WHERE username = ? OR student_id = ? OR email = ?");
         $stmtUser->execute([$identifier, $identifier, $identifier]);
         $user = $stmtUser->fetch();
@@ -734,11 +860,11 @@ if ($action === 'signin') {
 
     if (!$user) {
         http_response_code(404);
-        echo json_encode(["status" => "error", "message" => "User not found."]);
+        echo json_encode(["status" => "error", "message" => "User account not found."]);
         exit();
     }
 
-    // If current_password is provided, check it
+    // If current_password is provided in authenticated session, check it
     if (!empty($current_password) && !password_verify($current_password, $user['password']) && $user['password'] !== $current_password) {
         http_response_code(400);
         echo json_encode(["status" => "error", "message" => "Current password does not match."]);
@@ -760,7 +886,7 @@ if ($action === 'signin') {
 
     $newHash = password_hash($new_password, PASSWORD_DEFAULT);
     $stmtUp = $conn->prepare("UPDATE users SET password = ?, verification_code = NULL, verification_expires_at = NULL WHERE id = ?");
-    $stmtUp->execute([$newHash, $user_id]);
+    $stmtUp->execute([$newHash, $user['id']]);
 
     echo json_encode([
         "status" => "success",
